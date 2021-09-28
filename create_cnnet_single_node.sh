@@ -148,9 +148,33 @@ sudo ip netns exec loxilight bridge fdb add to 06:02:02:03:04:06 dst 3.3.3.2 dev
 
 ## Create two L3 hosts l3vxh1 and l3vxh2 which communicate over vxlan over loxilight namespace
 ## We call them l3 because communication between them happens over routing on top of vxlan.
+
+## Setup l3vxh1
 sudo ip -n loxilight link add hs7 type veth peer name eth0 netns l3vxh1
 sudo ip -n loxilight link set hs7 up
-
 sudo ip -n l3vxh1 link set eth0 up
 sudo ip netns exec l3vxh1 ifconfig eth0 17.17.17.1/24 up
 sudo ip netns exec l3vxh1 ip route add default via 17.17.17.254
+
+## Setup l3vxh2
+sudo ip netns exec l3vxh2 ifconfig eth0 8.8.8.1/24 up
+sudo ip netns exec l3vxh2 ip link add vxlan78 type vxlan id 78 local 8.8.8.1 dev eth0 dstport 4789
+sudo ip netns exec l3vxh2 ifconfig vxlan78 78.78.78.1/24 up
+sudo ip netns exec l3vxh2 ip addr add 18.18.18.1/24 dev vxlan78
+sudo ip netns exec l3vxh2  bridge fdb append 00:00:00:00:00:00 dst 8.8.8.254 dev vxlan78
+sudo ip netns exec l3vxh2 ip route add default via 78.78.78.254
+sudo ip netns exec loxilight ip route add 18.18.18.0/24 via 78.78.78.1
+
+## Setup loxilight vxlan
+sudo ip netns exec loxilight ifconfig hs7 17.17.17.254/24 up
+sudo ip -n loxilight link add hs8 type veth peer name eth0 netns l3vxh2
+sudo ip -n loxilight link set hs8 up
+sudo ip -n l3vxh2 link set eth0 up
+sudo ip netns exec loxilight brctl addbr hsvlan8
+sudo ip netns exec loxilight brctl addif hsvlan8 hs8
+sudo ip netns exec loxilight ip link set hsvlan8 up
+sudo ip netns exec loxilight ip addr add 8.8.8.254/24 dev hsvlan8
+sudo ip netns exec loxilight ip link add hsvxlan78 type vxlan id 78 local 8.8.8.254 dev hsvlan8 dstport 4789
+sudo ip netns exec loxilight ip link set hsvxlan78 up
+sudo ip netns exec loxilight ifconfig hsvxlan78 78.78.78.254/24 up
+sudo ip netns exec loxilight bridge fdb append 00:00:00:00:00:00 dst 8.8.8.1 dev hsvxlan78
